@@ -332,6 +332,171 @@ def main():
         create_comparison_plots(results_df, OUTPUT_DIR)
         print("对比图生成完成")
         print("##=========================")
+    
+    # 生成GPT分析用的数据文本
+    print("\n##=========================")
+    print("生成GPT分析用数据...")
+    create_gpt_analysis_text(results_df, OUTPUT_DIR)
+    print("GPT分析数据生成完成")
+    print("##=========================")
+
+def create_gpt_analysis_text(results_df, output_dir):
+    """创建适合GPT分析的文本数据
+    
+    Args:
+        results_df: 包含指标结果的DataFrame
+        output_dir: 输出目录
+    """
+    if len(results_df) == 0:
+        print("没有足够的数据生成分析文本")
+        return
+    
+    # 创建输出文件
+    output_file = os.path.join(output_dir, "gpt_analysis_data.txt")
+    
+    # 获取版本列表
+    versions = results_df['version'].unique()
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("# H-point和R1指标对比分析数据\n\n")
+        f.write(f"生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        # 1. 基本统计信息
+        f.write("## 基本统计信息\n\n")
+        
+        for version in versions:
+            version_data = results_df[results_df['version'] == version]
+            f.write(f"### {version} 版本\n\n")
+            
+            # 计算H-point和R1的均值和标准差
+            h_mean = version_data['h_point'].mean()
+            h_std = version_data['h_point'].std()
+            
+            f.write(f"- 章节数: {len(version_data)}\n")
+            f.write(f"- H-point平均值: {h_mean:.4f}\n")
+            f.write(f"- H-point标准差: {h_std:.4f}\n")
+            
+            if 'R1_content' in version_data.columns:
+                r1_mean = version_data['R1_content'].mean()
+                r1_std = version_data['R1_content'].std()
+                f.write(f"- R1(内容词)平均值: {r1_mean:.4f}\n")
+                f.write(f"- R1(内容词)标准差: {r1_std:.4f}\n")
+            
+            if 'F_h' in version_data.columns:
+                fh_mean = version_data['F_h'].mean()
+                fh_std = version_data['F_h'].std()
+                f.write(f"- 累积频率F(h)平均值: {fh_mean:.4f}\n")
+                f.write(f"- 累积频率F(h)标准差: {fh_std:.4f}\n")
+            
+            f.write("\n")
+        
+        # 2. 版本间对比
+        if len(versions) >= 2:
+            f.write("## 版本对比\n\n")
+            
+            # 计算H-point差异
+            version1, version2 = versions[0], versions[1]
+            pivot_df = results_df.pivot(index='chapter', columns='version', values=['h_point', 'R1_content', 'F_h'])
+            
+            # 只保留两个版本都有数据的章节
+            common_data = pivot_df.dropna()
+            
+            if len(common_data) > 0:
+                f.write(f"### {version1} vs {version2} (共{len(common_data)}个章节)\n\n")
+                
+                # H-point对比
+                h_diff = common_data[('h_point', version1)] - common_data[('h_point', version2)]
+                h_diff_mean = h_diff.mean()
+                h_diff_std = h_diff.std()
+                
+                f.write(f"#### H-point差异\n\n")
+                f.write(f"- 平均差异: {h_diff_mean:.4f}\n")
+                f.write(f"- 差异标准差: {h_diff_std:.4f}\n")
+                f.write(f"- 最大差异章节: {h_diff.idxmax()} ({h_diff.max():.4f})\n")
+                f.write(f"- 最小差异章节: {h_diff.idxmin()} ({h_diff.min():.4f})\n\n")
+                
+                # R1对比
+                if ('R1_content', version1) in common_data.columns and ('R1_content', version2) in common_data.columns:
+                    r1_diff = common_data[('R1_content', version1)] - common_data[('R1_content', version2)]
+                    r1_diff_mean = r1_diff.mean()
+                    r1_diff_std = r1_diff.std()
+                    
+                    f.write(f"#### R1(内容词)差异\n\n")
+                    f.write(f"- 平均差异: {r1_diff_mean:.4f}\n")
+                    f.write(f"- 差异标准差: {r1_diff_std:.4f}\n")
+                    f.write(f"- 最大差异章节: {r1_diff.idxmax()} ({r1_diff.max():.4f})\n")
+                    f.write(f"- 最小差异章节: {r1_diff.idxmin()} ({r1_diff.min():.4f})\n\n")
+                
+                # F(h)对比
+                if ('F_h', version1) in common_data.columns and ('F_h', version2) in common_data.columns:
+                    fh_diff = common_data[('F_h', version1)] - common_data[('F_h', version2)]
+                    fh_diff_mean = fh_diff.mean()
+                    fh_diff_std = fh_diff.std()
+                    
+                    f.write(f"#### 累积频率F(h)差异\n\n")
+                    f.write(f"- 平均差异: {fh_diff_mean:.4f}\n")
+                    f.write(f"- 差异标准差: {fh_diff_std:.4f}\n")
+                    f.write(f"- 最大差异章节: {fh_diff.idxmax()} ({fh_diff.max():.4f})\n")
+                    f.write(f"- 最小差异章节: {fh_diff.idxmin()} ({fh_diff.min():.4f})\n\n")
+        
+        # 3. 前10个差异最大的章节详细数据
+        if len(versions) >= 2:
+            f.write("## 差异最大的章节\n\n")
+            
+            # H-point差异排序
+            if len(common_data) > 0:
+                h_diff_abs = h_diff.abs()
+                top_diff_chapters = h_diff_abs.sort_values(ascending=False).head(10).index
+                
+                f.write("### H-point差异最大的章节\n\n")
+                f.write("| 章节 | " + f"{version1} H-point | " + f"{version2} H-point | 差异 |\n")
+                f.write("|------|" + "--------------|" + "--------------|------|\n")
+                
+                for chapter in top_diff_chapters:
+                    v1 = common_data.loc[chapter, ('h_point', version1)]
+                    v2 = common_data.loc[chapter, ('h_point', version2)]
+                    diff = v1 - v2
+                    f.write(f"| {chapter} | {v1:.4f} | {v2:.4f} | {diff:.4f} |\n")
+                
+                f.write("\n")
+                
+                # R1差异排序
+                if ('R1_content', version1) in common_data.columns and ('R1_content', version2) in common_data.columns:
+                    r1_diff_abs = r1_diff.abs()
+                    top_r1_diff_chapters = r1_diff_abs.sort_values(ascending=False).head(10).index
+                    
+                    f.write("### R1(内容词)差异最大的章节\n\n")
+                    f.write("| 章节 | " + f"{version1} R1 | " + f"{version2} R1 | 差异 |\n")
+                    f.write("|------|" + "----------|" + "----------|------|\n")
+                    
+                    for chapter in top_r1_diff_chapters:
+                        v1 = common_data.loc[chapter, ('R1_content', version1)]
+                        v2 = common_data.loc[chapter, ('R1_content', version2)]
+                        diff = v1 - v2
+                        f.write(f"| {chapter} | {v1:.4f} | {v2:.4f} | {diff:.4f} |\n")
+                    
+                    f.write("\n")
+        
+        # 4. 相关性分析
+        f.write("## 指标间相关性分析\n\n")
+        
+        for version in versions:
+            version_data = results_df[results_df['version'] == version]
+            
+            if 'R1_content' in version_data.columns and 'h_point' in version_data.columns:
+                h_r1_corr = version_data['h_point'].corr(version_data['R1_content'])
+                f.write(f"### {version}\n\n")
+                f.write(f"- H-point与R1(内容词)的相关系数: {h_r1_corr:.4f}\n")
+                
+                if 'F_h' in version_data.columns:
+                    h_fh_corr = version_data['h_point'].corr(version_data['F_h'])
+                    r1_fh_corr = version_data['R1_content'].corr(version_data['F_h'])
+                    f.write(f"- H-point与累积频率F(h)的相关系数: {h_fh_corr:.4f}\n")
+                    f.write(f"- R1(内容词)与累积频率F(h)的相关系数: {r1_fh_corr:.4f}\n")
+                
+                f.write("\n")
+    
+    print(f"GPT分析数据已保存至 {output_file}")
 
 def create_comparison_plots(results_df, output_dir):
     """创建版本之间的对比图
